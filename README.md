@@ -1,9 +1,7 @@
-<h1 align="center">
-=============================================
-Manual Arch Core Installation
-=============================================
-</h1>
 
+<h1 class="title-centered">Manual Arch Core Installation</h1>
+
+  
 [Official Guide](https://wiki.archlinux.org/title/Installation_guide)
 [Downloads](https://archlinux.org/download/)
 
