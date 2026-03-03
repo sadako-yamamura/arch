@@ -102,13 +102,30 @@ add desired system languages like LANG=en_US.UTF-8
 nano /etc/locale.conf
 ```
 
-#### 6. GRUB bootloader installation
+#### 6.A GRUB bootloader installation
 (disks must still be mounted)
 ```
 pacman -S grub efibootmgr dosfstools mtools --noconfirm
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 ```
+
+#### 6.B Limine & Windows dual boot
+(disks must still be mounted)
+```
+pacman -S limine
+mkdir -p /boot/efi/EFI/limine
+cp /usr/share/limine/BOOTX64.EFI /boot/efi/EFI/limine/
+efibootmgr \
+  --create \
+  --disk /dev/$disk \
+  --part $efi_partition_number \
+  --label "Arch Linux Limine" \
+  --loader '\EFI\limine\BOOTX64.EFI' \
+  --unicode
+limine-scan
+```
+
 #### 7. Enable basic services and exit installer to reboot
 ```
 systemctl enable bluetooth
@@ -147,7 +164,7 @@ sudo nmcli dev wifi connect $wifi_ssid password "$wifi_passwd"
 Installation of the packages
 ```
 sudo pacman -Syu
-sudo pacman -Syu xorg sddm plasma-meta plasma-workspace dolphin konsole kwrite cargo clang cmake make gcc noto-fonts noto-fonts-emoji ttf-dejavu ttf-font-awesome
+sudo pacman -Syu xorg sddm plasma-workspace dolphin cargo clang cmake make gcc noto-fonts noto-fonts-emoji ttf-dejavu
 ```
 Activation of the DE
 ```
@@ -155,5 +172,3 @@ sudo systemctl enable sddm
 sudo systemctl start sddm
 ```
 
-### TODO: optional upgrade to blackarch
-### TODO: Blackarch installation in VMware
