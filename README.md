@@ -6,12 +6,13 @@
 [Downloads](https://archlinux.org/download/)
 
 
-#### To make the terminal clear do
+#### 0. Optional 
+To make the terminal clear do
 ```
 setfont ter-132b or setfont -d
 ```
 
-#### Arch needs internet to install stuff
+Arch needs internet to install stuff
 If there is no cable use iwctl, otherwise skip
 Can check internet with ping
 If so, replace $wifi_ssid or export
@@ -21,6 +22,18 @@ iwctl
 station wlan0 get-networks
 station wlan0 connect $wifi_ssid
 exit
+```
+
+SSH
+
+On host
+```
+passwd
+ip a
+```
+On client
+```
+ssh root@$ip
 ```
 
 #### 1. Arch update
@@ -35,16 +48,19 @@ To list them do
 lsblk
 ```
 Manually create the partitions
-Set 1G EFI, then RAM x 1.5 G swap (optional), the rest as filesystem which is the root partition
+Set 1G EFI, the rest as filesystem which is the root partition
 Replace $disk or export
 ```
-cfdisk /dev/$disk
+sudo wipefs --all /dev/$disk
+sudo parted /dev/$disk --script mklabel gpt
+sudo parted /dev/$disk --script mkpart ESP fat32 1MiB 1025MiB
+sudo parted /dev/$disk --script set 1 esp on
+sudo parted /dev/$disk --script mkpart primary btrfs 1025MiB 100%
 ```
 After creating the partitions, those must be formatted
 Replace the variables or export
 ```
 mkfs.fat -F32 /dev/$efi_partition
-mkswap /dev/$swap_partition
 mkfs.ext4 /dev/$root_partition
 ```
 Mount the partitions
@@ -52,7 +68,6 @@ Replace the variables or export again
 ```
 mount /dev/$root_partition /mnt
 mount --mkdir /dev/$efi_partition /mnt/boot/efi
-swapon /dev/$swap_partition
 ```
 
 #### 3. Installation of core packages
@@ -101,9 +116,12 @@ add desired system languages like LANG=en_US.UTF-8
 ```
 nano /etc/locale.conf
 ```
+add desired system languages like KEYMAP=us
+```
+nano /etc/vconsole.conf
+```
 
 #### 6.A GRUB bootloader installation
-(disks must still be mounted)
 ```
 pacman -S grub efibootmgr dosfstools mtools --noconfirm
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
@@ -111,9 +129,12 @@ grub-mkconfig -o /boot/grub/grub.cfg
 ```
 
 #### 6.B Limine & Windows dual boot
-(disks must still be mounted)
+Needs to be booted in UEFI mode, check with:
 ```
-pacman -S limine
+ls /sys/firmware/efi/efivars
+```
+```
+pacman -S limine efibootmgr
 mkdir -p /boot/efi/EFI/limine
 cp /usr/share/limine/BOOTX64.EFI /boot/efi/EFI/limine/
 efibootmgr \
@@ -123,8 +144,27 @@ efibootmgr \
   --label "Arch Linux Limine" \
   --loader '\EFI\limine\BOOTX64.EFI' \
   --unicode
-limine-scan
 ```
+Add this to /boot/limine.conf
+```
+timeout: 5
+
+/Arch Linux
+    protocol: linux
+    path: boot():/vmlinuz-linux
+    module_path: boot():/initramfs-linux.img
+    options: root=$root_partition_UUID rw
+
+/Windows
+    protocol: efi
+    path: boot():/EFI/Microsoft/Boot/bootmgfw.efi
+    comment: Boot Microsoft Windows
+```
+```
+lsblk -o NAME,UUID
+nano /boot/limine.conf
+```
+
 
 #### 7. Enable basic services and exit installer to reboot
 ```
