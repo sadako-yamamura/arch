@@ -16,19 +16,19 @@ echo "Listing available disks..."
 lsblk
 
 # You need to specify the disk and EFI partition manually or set it as a variable
-read -p "Enter the disk (e.g., /dev/sda): " disk
+read -p "Enter the disk to format (DATA WILL BE DELETED) (e.g., sda or nvme0n1): " disk
 
 # Wipe existing disk, partition it, and format
 echo "Wiping and partitioning $disk..."
-wipefs --all $disk
-parted $disk --script mklabel gpt
-parted $disk --script mkpart ESP fat32 1MiB 1025MiB
-parted $disk --script set 1 esp on
-parted $disk --script mkpart primary btrfs 1025MiB 100%
+wipefs --all /dev/$disk
+parted /dev/$disk --script mklabel gpt
+parted /dev/$disk --script mkpart ESP fat32 1MiB 1025MiB
+parted /dev/$disk --script set 1 esp on
+parted /dev/$disk --script mkpart primary btrfs 1025MiB 100%
 
 # Get partition names (use lsblk to help identify the correct names)
-efi_partition="${disk}1"
-root_partition="${disk}2"
+read -p "Enter the EFI partition (e.g., nvme0n1p1): " efi_partition
+read -p "Enter the root partition (e.g., nvme0n1p2): " root_partition
 
 # Format partitions
 echo "Formatting EFI and Root partitions..."
@@ -62,28 +62,23 @@ genfstab -U /mnt >> /mnt/etc/fstab
 # 4. Create and prepare users
 echo "Creating user..."
 arch-chroot /mnt /bin/bash -c "
-  # Set root password
   echo 'Set root password:'
   passwd
 
-  # Set up a regular user
   read -p 'Enter your username: ' USER
   useradd -m -g users -G wheel,storage,power,video,audio -s /bin/bash \$USER
   echo 'Set user password for \$USER:'
   passwd \$USER
 
-  # Uncomment wheel group in sudoers file
-  EDITOR=nano visudo
+  sudo sed -i '/^#.*%wheel ALL=(ALL) ALL/s/^#//' /etc/sudoers
 "
 
 # 5. Configure locales
 echo "Configuring locales..."
 arch-chroot /mnt /bin/bash -c "
-  # Uncomment desired locale
   sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
   locale-gen
-
-  # Set system language and keymap
+  
   echo 'LANG=en_US.UTF-8' > /etc/locale.conf
   echo 'KEYMAP=us' > /etc/vconsole.conf
 "
@@ -98,10 +93,8 @@ arch-chroot /mnt /bin/bash -c "
 
 # 7. Install KDE Plasma with Wayland
 echo "Installing KDE Plasma with Wayland..."
-pacstrap -i /mnt plasma-wayland-session kde-applications sddm --noconfirm
-
-# Install additional utilities for Wayland and Plasma
-pacstrap -i /mnt konsole dolphin kscreen kwrite kdenetworkmanager --noconfirm
+# sluggy as fuck pacstrap -i /mnt plasma wayland sddm konsole dolphin kscreen kwrite breeze-gtk --noconfirm
+ pacstrap -i /mnt xorg sddm plasma-workspace dolphin cargo clang cmake make gcc noto-fonts noto-fonts-emoji ttf-dejavu --noconfirm
 
 # Enable SDDM (KDE's Display Manager)
 arch-chroot /mnt /bin/bash -c "
@@ -117,4 +110,6 @@ arch-chroot /mnt /bin/bash -c "
 # 9. Reboot the system
 echo "Finishing up and rebooting..."
 umount -lR /mnt
-shutdown now
+
+sleep 5
+sudo shutdown -r
