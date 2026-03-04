@@ -59,12 +59,13 @@ Manually create the partitions
 Set 1G EFI, the rest as filesystem which is the root partition
 Replace $disk or export
 ```
-sudo wipefs --all /dev/nvme0n1p1
+sudo wipefs --all /dev/$disk
 sudo parted /dev/$disk --script mklabel gpt
 sudo parted /dev/$disk --script mkpart ESP fat32 1MiB 1025MiB
 sudo parted /dev/$disk --script set 1 esp on
 sudo parted /dev/$disk --script mkpart primary btrfs 1025MiB 100%
 mkfs.fat -F32 /dev/$efi_partition
+mkfs.btrfs -f /dev/$root_partition
 ```
 
 Mount the partitions
@@ -76,15 +77,16 @@ mount --mkdir /dev/$efi_partition /mnt/boot/efi
 
 #### 3. Installation of core packages
 ```
-pacstrap -i /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano vim bluez bluez-utils networkmanager
+touch /mnt/etc/vconsole.conf
+pacstrap -i /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano vim bluez bluez-utils networkmanager --noconfirm
 ```
 for intel cpus
 ```
-pacstrap -i /mnt intel-ucode
+pacstrap -i /mnt intel-ucode --noconfirm
 ```
 for amd cpus
 ```
-pacstrap -i /mnt amd-ucode
+pacstrap -i /mnt amd-ucode --noconfirm
 ```
 then
 ```
@@ -95,8 +97,11 @@ genfstab -U /mnt >> /mnt/etc/fstab
 Password will be asked
 ```
 arch-chroot /mnt
+```
+```
 passwd
 ```
+
 Replace $USER or export, password asked again
 ```
 useradd -m -g users -G wheel,storage,power,video,audio -s /bin/bash $USER
@@ -134,8 +139,6 @@ grub-mkconfig -o /boot/grub/grub.cfg
 
 #### 7. Enable basic services and exit installer to reboot
 ```
-systemctl enable bluetooth
-systemctl enable NetworkManager
 exit
 umount -lR /mnt
 shutdown now
@@ -170,7 +173,7 @@ sudo nmcli dev wifi connect $wifi_ssid password "$wifi_passwd"
 Installation of the packages
 ```
 sudo pacman -Syu
-sudo pacman -Syu xorg sddm plasma-workspace dolphin cargo clang cmake make gcc noto-fonts noto-fonts-emoji ttf-dejavu
+sudo pacman -S xorg sddm plasma-workspace dolphin cargo clang cmake make gcc noto-fonts noto-fonts-emoji ttf-dejavu --noconfirm
 ```
 Activation of the DE
 ```
