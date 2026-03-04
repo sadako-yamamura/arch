@@ -36,6 +36,14 @@ On client
 ssh root@$ip
 ```
 
+Optional
+```
+export disk="nvme0n1"
+export efi_partition="nvme0n1p1"
+export root_partition="nvme0n1p2"
+export USER="sadako"
+```
+
 #### 1. Arch update
 ```
 pacman -Sy
@@ -51,18 +59,14 @@ Manually create the partitions
 Set 1G EFI, the rest as filesystem which is the root partition
 Replace $disk or export
 ```
-sudo wipefs --all /dev/$disk
+sudo wipefs --all /dev/nvme0n1p1
 sudo parted /dev/$disk --script mklabel gpt
 sudo parted /dev/$disk --script mkpart ESP fat32 1MiB 1025MiB
 sudo parted /dev/$disk --script set 1 esp on
 sudo parted /dev/$disk --script mkpart primary btrfs 1025MiB 100%
-```
-After creating the partitions, those must be formatted
-Replace the variables or export
-```
 mkfs.fat -F32 /dev/$efi_partition
-mkfs.ext4 /dev/$root_partition
 ```
+
 Mount the partitions
 Replace the variables or export again
 ```
@@ -127,44 +131,6 @@ pacman -S grub efibootmgr dosfstools mtools --noconfirm
 grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
 grub-mkconfig -o /boot/grub/grub.cfg
 ```
-
-#### 6.B Limine & Windows dual boot
-Needs to be booted in UEFI mode, check with:
-```
-ls /sys/firmware/efi/efivars
-```
-```
-pacman -S limine efibootmgr
-mkdir -p /boot/efi/EFI/limine
-cp /usr/share/limine/BOOTX64.EFI /boot/efi/EFI/limine/
-efibootmgr \
-  --create \
-  --disk /dev/$disk \
-  --part $efi_partition_number \
-  --label "Arch Linux Limine" \
-  --loader '\EFI\limine\BOOTX64.EFI' \
-  --unicode
-```
-Add this to /boot/limine.conf
-```
-timeout: 5
-
-/Arch Linux
-    protocol: linux
-    path: boot():/vmlinuz-linux
-    module_path: boot():/initramfs-linux.img
-    options: root=$root_partition_UUID rw
-
-/Windows
-    protocol: efi
-    path: boot():/EFI/Microsoft/Boot/bootmgfw.efi
-    comment: Boot Microsoft Windows
-```
-```
-lsblk -o NAME,UUID
-nano /boot/limine.conf
-```
-
 
 #### 7. Enable basic services and exit installer to reboot
 ```
