@@ -1,21 +1,19 @@
 #!/bin/bash
 
-# Ensure you run the script as root
+# Ensure script as root
 if [[ $EUID -ne 0 ]]; then
    echo "This script must be run as root" 
    exit 1
 fi
 
-# 1. Arch update
+# Arch update
 echo "Updating Arch and Keyring..."
 pacman -Sy --noconfirm
 pacman -Sy archlinux-keyring --noconfirm
 
-# 2. Prepare disk partitions
+# Prepare disk partitions
 echo "Listing available disks..."
 lsblk -f
-
-# You need to specify the disk and EFI partition manually or set it as a variable
 read -p "Format disk? (DATA WILL BE DELETED) (Partitions still needed)? (y/n): " is_format_disk
 if [[ "${is_format_disk,,}" == "y" || "${is_format_disk,,}" == "yes" ]]; then
   read -p "Enter the disk to format (DATA WILL BE DELETED) (e.g., sda or nvme0n1): " disk
@@ -28,10 +26,10 @@ if [[ "${is_format_disk,,}" == "y" || "${is_format_disk,,}" == "yes" ]]; then
   parted /dev/$disk --script mkpart primary btrfs 1025MiB 100%
   lsblk
 fi
-# Get partition names (use lsblk to help identify the correct names)
+
+# Get partition names
 read -p "Enter the EFI partition (e.g., nvme0n1p1): " efi_partition
 read -p "Enter the root partition (e.g., nvme0n1p2): " root_partition
-
 # Format partitions
 echo "Formatting EFI and Root partitions..."
 mkfs.fat -F32 /dev/${efi_partition}
@@ -41,7 +39,6 @@ mkfs.btrfs -f /dev/${root_partition}
 echo "Mounting the partitions..."
 mount /dev/${root_partition} /mnt
 mount --mkdir /dev/${efi_partition} /mnt/boot/efi
-
 # Generate fstab
 echo "Generating fstab..."
 genfstab -U /mnt > /mnt/etc/fstab
@@ -53,10 +50,12 @@ if grep -q 'fsck' "/etc/mkinitcpio.conf"; then
   arch-chroot /mnt mkinitcpio -P
 fi
 
-# 3. Install core packages
+# Optional file 
+touch /mnt/etc/vconsole.conf
+
+# Install core packages
 echo "Installing core packages..."
 pacstrap /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano bluez bluez-utils networkmanager --noconfirm
-#touch /mnt/etc/vconsole.conf
 
 # Check CPU architecture for microcode (Intel vs AMD)
 read -p "Enter CPU type (intel/amd): " cpu_type
@@ -76,21 +75,20 @@ if [[ "${is_nvidia,,}" == "y" || "${is_nvidia,,}" == "yes" ]]; then
   pacstrap -i /mnt linux-headers nvidia-utils nvidia-settings nvidia-dkms --noconfirm
 fi
 
-# 4. Create and prepare users
-echo "Creating user..."
+# Create and prepare users
 arch-chroot /mnt /bin/bash -c "
   echo 'Set root password:'
   passwd
-
-  read -p 'Enter your username: ' USER
-  useradd -m -G wheel,storage,power,video,audio -s /bin/bash \"\$USER\"
-  echo 'Set user password for \$USER:'
-  passwd \"\$USER\"
-
+"
+read -p "Enter your username: " USER
+arch-chroot /mnt /bin/bash -c "
+  useradd -m -G wheel,storage,power,video,audio -s /bin/bash \"$USER\"
+  echo 'Set password for  \"$USER\":'
+  passwd \"$USER\"
   sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 "
 
-# 5. Configure locales
+# Configure locales
 echo "Configuring en_US.UTF-8 locales..."
 arch-chroot /mnt /bin/bash -c "
   sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
@@ -100,7 +98,7 @@ arch-chroot /mnt /bin/bash -c "
   echo 'KEYMAP=us' > /etc/vconsole.conf
 "
 
-# 6. Install GRUB
+# Install GRUB as the bootloader
 echo "Installing GRUB..."
 pacstrap -i /mnt grub efibootmgr dosfstools mtools --noconfirm
 arch-chroot /mnt /bin/bash -c "
@@ -108,12 +106,17 @@ arch-chroot /mnt /bin/bash -c "
   grub-mkconfig -o /boot/grub/grub.cfg
 "
 
-# 7. Install KDE Plasma with Wayland
+# Install KDE Plasma with Wayland
 echo "Installing KDE Plasma with Wayland..."
-pacstrap -i /mnt plasma wayland sddm dolphin kscreen breeze-gtk --noconfirm
-# old xorg: pacstrap -i /mnt xorg sddm plasma-workspace dolphin cargo clang cmake make gcc noto-fonts noto-fonts-emoji ttf-dejavu --noconfirm
+pacstrap -i /mnt plasma wayland sddm dolphin kscreen konsole breeze-gtk --noconfirm
 
-# Enable SDDM (KDE's Display Manager)
+# Optionally curl a file to sync other packages and .config files
+read -p "Curl optional package installer? (y/n): " is_opt_pkgs
+if [[ "${is_opt_pkgs,,}" == "y" || "${is_opt_pkgs,,}" == "yes" ]]; then
+  curl -fL "https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh" -o /home/"$USER"/Desktop/install_optionals.sh
+fi
+
+# Enable needed basic services
 echo "Enabling basic services"
 arch-chroot /mnt /bin/bash -c "
   systemctl enable NetworkManager
@@ -121,9 +124,8 @@ arch-chroot /mnt /bin/bash -c "
   systemctl enable sddm.service
 "
 
+# Reboot and exit installation
 umount -lR /mnt
-
-# 9. Reboot the system
 echo "Finished and rebooting in 5 seconds..."
 sleep 5
-sudo shutdown -r
+sudo shutdown -r now
