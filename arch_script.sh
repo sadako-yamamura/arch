@@ -14,7 +14,7 @@ pacman -Sy archlinux-keyring --noconfirm
 # Prepare disk partitions
 echo "Listing available disks..."
 lsblk -f
-read -p "Format disk? (DATA WILL BE DELETED) (Partitions still needed)? (y/n): " is_format_disk
+read -p "Format a disk? (DATA OF THE SELECTED DISK WILL BE DELETED)? (y/n): " is_format_disk
 if [[ "${is_format_disk,,}" == "y" || "${is_format_disk,,}" == "yes" ]]; then
   read -p "Enter the disk to format (DATA WILL BE DELETED) (e.g., sda or nvme0n1): " disk
   # Wipe existing disk, partition it, and format
@@ -113,7 +113,7 @@ pacstrap -i /mnt plasma wayland sddm dolphin kscreen konsole breeze-gtk --noconf
 # Optionally curl a file to sync other packages and .config files
 read -p "Curl optional package installer? (y/n): " is_opt_pkgs
 if [[ "${is_opt_pkgs,,}" == "y" || "${is_opt_pkgs,,}" == "yes" ]]; then
-  curl -fL "https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh" -o /home/"$USER"/Desktop/install_optionals.sh
+  curl -fL "https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh" -o /mnt/home/"$USER"/Desktop/install_optionals.sh
 fi
 
 # Enable needed basic services
