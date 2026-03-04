@@ -13,10 +13,10 @@ pacman -Sy archlinux-keyring --noconfirm
 
 # 2. Prepare disk partitions
 echo "Listing available disks..."
-lsblk
+lsblk -f
 
 # You need to specify the disk and EFI partition manually or set it as a variable
-read -p "Format disk (DATA WILL BE DELETED) (Partitions still needed)? (y/n): " is_format_disk
+read -p "Format disk? (DATA WILL BE DELETED) (Partitions still needed)? (y/n): " is_format_disk
 if [[ "${is_format_disk,,}" == "y" || "${is_format_disk,,}" == "yes" ]]; then
   read -p "Enter the disk to format (DATA WILL BE DELETED) (e.g., sda or nvme0n1): " disk
   # Wipe existing disk, partition it, and format
@@ -26,6 +26,7 @@ if [[ "${is_format_disk,,}" == "y" || "${is_format_disk,,}" == "yes" ]]; then
   parted /dev/$disk --script mkpart ESP fat32 1MiB 1025MiB
   parted /dev/$disk --script set 1 esp on
   parted /dev/$disk --script mkpart primary btrfs 1025MiB 100%
+  lsblk
 fi
 # Get partition names (use lsblk to help identify the correct names)
 read -p "Enter the EFI partition (e.g., nvme0n1p1): " efi_partition
@@ -33,18 +34,29 @@ read -p "Enter the root partition (e.g., nvme0n1p2): " root_partition
 
 # Format partitions
 echo "Formatting EFI and Root partitions..."
-mkfs.fat -F32 /dev/$efi_partition
-mkfs.btrfs -f /dev/$root_partition
+mkfs.fat -F32 /dev/${efi_partition}
+mkfs.btrfs -f /dev/${root_partition}
 
 # Mount the partitions
 echo "Mounting the partitions..."
-mount /dev/$root_partition /mnt
-mount --mkdir /dev/$efi_partition /mnt/boot/efi
+mount /dev/${root_partition} /mnt
+mount --mkdir /dev/${efi_partition} /mnt/boot/efi
+
+# Generate fstab
+echo "Generating fstab..."
+genfstab -U /mnt > /mnt/etc/fstab
+
+# Check if fsck is in the mkinitcpio.conf hooks array
+if grep -q 'fsck' "/etc/mkinitcpio.conf"; then
+  echo "Removing fsck hook..."
+  sed -i 's/\bfsck\b//g' "/etc/mkinitcpio.conf"
+  arch-chroot /mnt mkinitcpio -P
+fi
 
 # 3. Install core packages
 echo "Installing core packages..."
-touch /mnt/etc/vconsole.conf
-pacstrap -i /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano bluez bluez-utils networkmanager --noconfirm
+pacstrap /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano bluez bluez-utils networkmanager --noconfirm
+#touch /mnt/etc/vconsole.conf
 
 # Check CPU architecture for microcode (Intel vs AMD)
 read -p "Enter CPU type (intel/amd): " cpu_type
@@ -64,10 +76,6 @@ if [[ "${is_nvidia,,}" == "y" || "${is_nvidia,,}" == "yes" ]]; then
   pacstrap -i /mnt linux-headers nvidia-utils nvidia-settings nvidia-dkms --noconfirm
 fi
 
-# Generate fstab
-echo "Generating fstab..."
-genfstab -U /mnt >> /mnt/etc/fstab
-
 # 4. Create and prepare users
 echo "Creating user..."
 arch-chroot /mnt /bin/bash -c "
@@ -75,11 +83,11 @@ arch-chroot /mnt /bin/bash -c "
   passwd
 
   read -p 'Enter your username: ' USER
-  useradd -m -g users -G wheel,storage,power,video,audio -s /bin/bash \$USER
+  useradd -m -G wheel,storage,power,video,audio -s /bin/bash \"\$USER\"
   echo 'Set user password for \$USER:'
-  passwd \$USER
+  passwd \"\$USER\"
 
-  sudo sed -i '/^#.*%wheel ALL=(ALL) ALL/s/^#//' /etc/sudoers
+  sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 "
 
 # 5. Configure locales
@@ -110,7 +118,7 @@ echo "Enabling basic services"
 arch-chroot /mnt /bin/bash -c "
   systemctl enable NetworkManager
   systemctl enable bluetooth.service
-  systemctl enable sddm
+  systemctl enable sddm.service
 "
 
 umount -lR /mnt
