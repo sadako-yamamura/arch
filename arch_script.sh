@@ -13,6 +13,7 @@ pacman -Sy archlinux-keyring --noconfirm
 
 # Prepare disk partitions
 echo "Listing available disks..."
+umount -lRq /mnt
 lsblk -f
 read -p "Format a disk? (DATA OF THE SELECTED DISK WILL BE DELETED)? (y/n): " is_format_disk
 if [[ "${is_format_disk,,}" == "y" || "${is_format_disk,,}" == "yes" ]]; then
@@ -47,12 +48,15 @@ if grep -q 'fsck' "/etc/mkinitcpio.conf"; then
   arch-chroot /mnt mkinitcpio -P
 fi
 
-# Optional file 
-#touch /mnt/etc/vconsole.conf
 
 # Install core packages
 echo "Installing core packages..."
 pacstrap /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano bluez bluez-utils networkmanager --noconfirm
+
+# Fixes bug
+arch-chroot /mnt /bin/bash -c "
+  ln -s /usr/bin/btrfsck /sbin/fsck.btrfs
+"
 
 # Check CPU architecture for microcode (Intel vs AMD)
 read -p "Enter CPU type (intel/amd): " cpu_type
@@ -86,7 +90,7 @@ arch-chroot /mnt /bin/bash -c "
   useradd -m -G wheel,storage,power,video,audio -s /bin/bash \"$INSTALL_USER\"
   echo 'Set password for  \"$INSTALL_USER\":'
   passwd \"$INSTALL_USER\"
-  sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
+  sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 "
 
 # Configure locales
@@ -108,8 +112,11 @@ arch-chroot /mnt /bin/bash -c "
 "
 
 # Install KDE Plasma with Wayland
-echo "Installing KDE Plasma with Wayland..."
-pacstrap -i /mnt plasma wayland sddm dolphin kscreen konsole breeze-gtk --noconfirm
+read -p "Install a Desktop Environment? (KDE Plasma will be used) (y/n): " is_kde
+if [[ "${is_kde,,}" == "y" || "${is_kde,,}" == "yes" ]]; then
+  echo "Installing KDE Plasma with Wayland..."
+  pacstrap -i /mnt plasma wayland sddm dolphin kscreen konsole breeze-gtk --noconfirm
+fi
 
 # Optionally curl a file to sync other packages and .config files
 read -p "Curl optional package installer? (y/n): " is_opt_pkgs
@@ -119,11 +126,18 @@ if [[ "${is_opt_pkgs,,}" == "y" || "${is_opt_pkgs,,}" == "yes" ]]; then
     chmod +x "$tmp"
     mkdir -p "/mnt/home/$INSTALL_USER/Desktop"
     mv "$tmp" "/mnt/home/$INSTALL_USER/Desktop/install_optionals.sh"
-    chown "$INSTALL_USER:$INSTALL_USER" "/mnt/home/$INSTALL_USER/Desktop/install_optionals.sh"
+    arch-chroot /mnt chown "$INSTALL_USER:$INSTALL_USER" "/home/$INSTALL_USER/Desktop/install_optionals.sh"
   else
     echo "Download failed"
     rm -f "$tmp"
   fi
+fi
+
+# Set up as SSH Server
+read -p "Set machine as SSH Server on boot? (y/n): " is_ssh
+if [[ "${is_kde,,}" == "y" || "${is_kde,,}" == "yes" ]]; then
+  echo "Installing OpenSSH..."
+  pacstrap -i /mnt openssh --noconfirm
 fi
 
 # Generate fstab
@@ -137,6 +151,11 @@ arch-chroot /mnt /bin/bash -c "
   systemctl enable bluetooth.service
   systemctl enable sddm.service
 "
+# Auto enable SSH if selected
+read -p "Set machine as SSH Server on boot? (y/n): " is_ssh
+if [[ "${is_kde,,}" == "y" || "${is_kde,,}" == "yes" ]]; then
+  arch-chroot /mnt /bin/bash -c "systemctl enable sshd"
+fi
 
 # Reboot and exit installation
 umount -lR /mnt
