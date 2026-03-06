@@ -55,9 +55,11 @@ mount /dev/$EFI /mnt/boot
 echo " ========== Optimizing mirrors..."
 pacman -Sy --noconfirm reflector
 reflector \
- --latest 20 \
+ --latest 10 \
  --sort rate \
  --save /etc/pacman.d/mirrorlist
+# Fixes warning
+touch /mnt/etc/vconsole.conf
 echo " ========== Installing base system..."
 pacstrap /mnt \
  base \
@@ -96,6 +98,7 @@ arch-chroot /mnt /bin/bash -c "
 "
 
 # ========================================= HOSTNAMES
+# FIXME line 7 warning here-document at line 3 delimited by end of file wanted HOSTS
 echo " ========== Setting hostname"
 arch-chroot /mnt /bin/bash -c "
  echo archlinux > /etc/hostname
@@ -107,7 +110,8 @@ arch-chroot /mnt /bin/bash -c "
 "
 
 # ========================================= USERS
-echo " ========== Insert root password"
+# FIXME keep asking
+echo " (i) Insert root password"
 passwd
 echo " ========== Creating user"
 read -p " (i) Username: " USERNAME
@@ -124,7 +128,7 @@ elif lscpu | grep -i amd; then
 fi
 echo " ========== Checking for NVIDIA GPU"
 if lspci | grep -i nvidia; then
- pacstrap /mnt linux-headers nvidia-utils nvidia-settings nvidia-dkm --noconfirm
+ pacstrap /mnt linux-headers nvidia-utils nvidia-settings nvidia-dkms --noconfirm
 fi
 arch-chroot /mnt /bin/bash -c "mkinitcpio -P"
 
