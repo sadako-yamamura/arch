@@ -110,21 +110,21 @@ HOSTS
 "
 
 # ========================================= USERS
-  # Silently delete all normal users before
-for u in $(awk -F: '$3 >= 1000 {print $1}' /etc/passwd); do
-    userdel -r "$u" > /dev/null 2>&1
-done
+# Silently delete all normal users before
+#for u in $(awk -F: '$3 >= 1000 {print $1}' mnt/etc/passwd); do
+#    userdel -r "$u" > /dev/null 2>&1 || true
+#done
 echo " (i) Insert root password"
-until passwd root; do
+until arch-chroot /mnt /bin/bash -c "passwd"; do
     echo "Password change failed. Try again: "
 done
 echo " ========== Creating user"
 read -p " (i) Username: " USERNAME
-useradd -m -G wheel,audio,video,storage,power -s /bin/bash $USERNAME
-until passwd $USERNAME; do
+arch-chroot /mnt /bin/bash -c "useradd -m -G wheel,audio,video,storage,power -s /bin/bash '$USERNAME'"
+until arch-chroot /mnt /bin/bash -c "passwd '$USERNAME'"; do
     echo "Password change for $USERNAME failed. Try again: "
 done
-sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+arch-chroot /mnt /bin/bash -c "sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers"
 
 # ========================================= HARDWARE AND DRIVERS
 echo " ========== Installing CPU microcode"
@@ -179,7 +179,7 @@ EOF
 
 # ========================================= DESKTOP
 # TODO: xcfe as 2nd
-read -p " (i) Install a Desktop Environment? (KDE Plasma will be used) (y/n)" ENABLE_KDE
+read -p " (i) Install a Desktop Environment? (KDE Plasma will be used) (y/n): " ENABLE_KDE
 if [[ "${ENABLE_KDE,,}" == "y" || "${ENABLE_KDE,,}" == "yes" ]]; then
  pacstrap /mnt plasma wayland sddm konsole dolphin kscreen kwrite breeze-gtk --noconfirm
  arch-chroot /mnt systemctl enable sddm
@@ -196,8 +196,8 @@ fi
 read -p " (i) Download optional config script via curl? (y/n): " ENABLE_CURL
 if [[ "${ENABLE_CURL,,}" == "y" || "${ENABLE_CURL,,}" == "yes" ]]; then
   curl -L https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh \
-  -o /mnt/home/$USERNAME/install_optionals.sh
-  chmod +x /mnt/home/$USERNAME/install_optionals.sh
+  -o /mnt/home/$USERNAME/install_optionals.sh || true
+  chmod +x /mnt/home/$USERNAME/install_optionals.sh || true
 fi
 
 # TODO ufw
