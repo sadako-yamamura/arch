@@ -39,9 +39,6 @@ mkfs.btrfs -f /dev/${root_partition}
 echo "Mounting the partitions..."
 mount /dev/${root_partition} /mnt
 mount --mkdir /dev/${efi_partition} /mnt/boot/efi
-# Generate fstab
-echo "Generating fstab..."
-genfstab -U /mnt > /mnt/etc/fstab
 
 # Check if fsck is in the mkinitcpio.conf hooks array
 if grep -q 'fsck' "/etc/mkinitcpio.conf"; then
@@ -51,7 +48,7 @@ if grep -q 'fsck' "/etc/mkinitcpio.conf"; then
 fi
 
 # Optional file 
-touch /mnt/etc/vconsole.conf
+#touch /mnt/etc/vconsole.conf
 
 # Install core packages
 echo "Installing core packages..."
@@ -128,6 +125,10 @@ if [[ "${is_opt_pkgs,,}" == "y" || "${is_opt_pkgs,,}" == "yes" ]]; then
     rm -f "$tmp"
   fi
 fi
+
+# Generate fstab
+echo "Generating fstab..."
+genfstab -U /mnt > /mnt/etc/fstab
 
 # Enable needed basic services
 echo "Enabling basic services"
