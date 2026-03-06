@@ -8,8 +8,8 @@ fi
 
 # Arch update
 echo "Updating Arch and Keyring..."
-pacman -Sy --noconfirm
-pacman -Sy archlinux-keyring --noconfirm
+pacman -Syy --noconfirm
+pacman -S archlinux-keyring --noconfirm
 
 # Prepare disk partitions
 echo "Listing available disks..."
@@ -41,22 +41,21 @@ echo "Mounting the partitions..."
 mount /dev/${root_partition} /mnt
 mount --mkdir /dev/${efi_partition} /mnt/boot/efi
 
+# Install core packages
+echo "Installing core packages..."
+pacstrap /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano bluez bluez-utils networkmanager --noconfirm
+
 # Check if fsck is in the mkinitcpio.conf hooks array
-if grep -q 'fsck' "/etc/mkinitcpio.conf"; then
+if grep -q 'fsck' "mnt/etc/mkinitcpio.conf"; then
   echo "Removing fsck hook..."
   sed -i 's/\bfsck\b//g' "/etc/mkinitcpio.conf"
   arch-chroot /mnt mkinitcpio -P
 fi
 
-
-# Install core packages
-echo "Installing core packages..."
-pacstrap /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano bluez bluez-utils networkmanager --noconfirm
-
 # Fixes bug
-arch-chroot /mnt /bin/bash -c "
-  ln -s /usr/bin/btrfsck /sbin/fsck.btrfs
-"
+#arch-chroot /mnt /bin/bash -c "
+#  ln -s /usr/bin/btrfsck /sbin/fsck.btrfs
+#"
 
 # Check CPU architecture for microcode (Intel vs AMD)
 read -p "Enter CPU type (intel/amd): " cpu_type
@@ -107,9 +106,20 @@ arch-chroot /mnt /bin/bash -c "
 echo "Installing GRUB..."
 pacstrap -i /mnt grub efibootmgr dosfstools mtools --noconfirm
 arch-chroot /mnt /bin/bash -c "
-  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB
-  grub-mkconfig -o /boot/grub/grub.cfg
+  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB  
 "
+# Add second partition for dual boot
+lsblk -f
+read -p "Add second entry to GRUB for dualboot? (y/n): " is_dboot
+if [[ "${is_dboot,,}" == "y" || "${is_dboot,,}" == "yes" ]]; then
+   read -p "Enter the second EFI partition (e.g., nvme1n1p1): " DBOOT_EFI_PART
+   pacstrap -i /mnt os-prober --noconfirm
+   arch-chroot /mnt /bin/bash -c "
+     sed -i 's/^#GRUB_DISABLE_OS_PROBER=false/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
+     mount --mkdir /dev/\"$DBOOT_EFI_PART\" /efi
+   "
+fi
+arch-chroot /mnt /bin/bash -c "grub-mkconfig -o /boot/grub/grub.cfg"
 
 # Install KDE Plasma with Wayland
 read -p "Install a Desktop Environment? (KDE Plasma will be used) (y/n): " is_kde
@@ -135,7 +145,7 @@ fi
 
 # Set up as SSH Server
 read -p "Set machine as SSH Server on boot? (y/n): " is_ssh
-if [[ "${is_kde,,}" == "y" || "${is_kde,,}" == "yes" ]]; then
+if [[ "${is_ssh,,}" == "y" || "${is_ssh,,}" == "yes" ]]; then
   echo "Installing OpenSSH..."
   pacstrap -i /mnt openssh --noconfirm
 fi
@@ -149,11 +159,13 @@ echo "Enabling basic services"
 arch-chroot /mnt /bin/bash -c "
   systemctl enable NetworkManager
   systemctl enable bluetooth.service
-  systemctl enable sddm.service
 "
-# Auto enable SSH if selected
-read -p "Set machine as SSH Server on boot? (y/n): " is_ssh
+# Auto enable KDE if selected
 if [[ "${is_kde,,}" == "y" || "${is_kde,,}" == "yes" ]]; then
+  arch-chroot /mnt /bin/bash -c "systemctl enable sddm.service"
+fi
+# Auto enable SSH if selected
+if [[ "${is_ssh,,}" == "y" || "${is_ssh,,}" == "yes" ]]; then
   arch-chroot /mnt /bin/bash -c "systemctl enable sshd"
 fi
 
