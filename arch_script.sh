@@ -80,11 +80,15 @@ arch-chroot /mnt /bin/bash -c "
   echo 'Set root password:'
   passwd
 "
-read -p "Enter your username: " USER
+read -p "Enter your username: " INSTALL_USER
+if [[ -z "$INSTALL_USER" ]]; then
+    echo "Username cannot be empty"
+    exit 1
+fi
 arch-chroot /mnt /bin/bash -c "
-  useradd -m -G wheel,storage,power,video,audio -s /bin/bash \"$USER\"
-  echo 'Set password for  \"$USER\":'
-  passwd \"$USER\"
+  useradd -m -G wheel,storage,power,video,audio -s /bin/bash \"$INSTALL_USER\"
+  echo 'Set password for  \"$INSTALL_USER\":'
+  passwd \"$INSTALL_USER\"
   sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers
 "
 
@@ -113,7 +117,16 @@ pacstrap -i /mnt plasma wayland sddm dolphin kscreen konsole breeze-gtk --noconf
 # Optionally curl a file to sync other packages and .config files
 read -p "Curl optional package installer? (y/n): " is_opt_pkgs
 if [[ "${is_opt_pkgs,,}" == "y" || "${is_opt_pkgs,,}" == "yes" ]]; then
-  curl -fL "https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh" -o /mnt/home/"$USER"/Desktop/install_optionals.sh
+  tmp="/mnt/tmp/install_optionals.sh.$$"
+  if curl -fL --show-error "https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh" -o "$tmp"; then
+    chmod +x "$tmp"
+    mkdir -p "/mnt/home/$INSTALL_USER/Desktop"
+    mv "$tmp" "/mnt/home/$INSTALL_USER/Desktop/install_optionals.sh"
+    chown "$INSTALL_USER:$INSTALL_USER" "/mnt/home/$INSTALL_USER/Desktop/install_optionals.sh"
+  else
+    echo "Download failed"
+    rm -f "$tmp"
+  fi
 fi
 
 # Enable needed basic services
