@@ -196,8 +196,8 @@ fi
 read -p " (i) Download optional config script via curl? (y/n): " ENABLE_CURL
 if [[ "${ENABLE_CURL,,}" == "y" || "${ENABLE_CURL,,}" == "yes" ]]; then
   curl -L https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh \
-  -o /mnt/home/$USERNAME/install_optionals.sh || true
-  chmod +x /mnt/home/$USERNAME/install_optionals.sh || true
+  -o /mnt/home/$USERNAME/Desktop/install_optionals.sh || true
+  chmod +x /mnt/home/$USERNAME/Desktop/install_optionals.sh || true
 fi
 
 # TODO ufw
@@ -205,6 +205,8 @@ fi
 # TODO lib32
 
 # TODO yay
+
+# TODO remember wifi credentials
 
 # ========================================= FINISING INSTALLATION
 echo " ========== Enabling basic services"
