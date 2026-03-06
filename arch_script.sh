@@ -53,12 +53,13 @@ mount /dev/$EFI /mnt/boot
 
 # ========================================= CORE PACKAGES
 echo " ========== Optimizing mirrors..."
-pacman -Sy --noconfirm reflector
-reflector \
- --latest 10 \
- --sort rate \
- --save /etc/pacman.d/mirrorlist
+#  pacman -Sy --noconfirm reflector
+#reflector \
+# --latest 10 \
+# --sort rate \
+# --save /etc/pacman.d/mirrorlist
 # Fixes warning
+mkdir -p /mnt/etc
 touch /mnt/etc/vconsole.conf
 echo " ========== Installing base system..."
 pacstrap /mnt \
@@ -98,25 +99,31 @@ arch-chroot /mnt /bin/bash -c "
 "
 
 # ========================================= HOSTNAMES
-# FIXME line 7 warning here-document at line 3 delimited by end of file wanted HOSTS
 echo " ========== Setting hostname"
 arch-chroot /mnt /bin/bash -c "
- echo archlinux > /etc/hostname
- cat >> /etc/hosts <<HOSTS
- 127.0.0.1 localhost
- ::1 localhost
- 127.0.1.1 archlinux.localdomain archlinux
- HOSTS
+echo archlinux > /etc/hostname
+cat >> /etc/hosts <<HOSTS
+127.0.0.1 localhost
+::1 localhost
+127.0.1.1 archlinux.localdomain archlinux
+HOSTS
 "
 
 # ========================================= USERS
-# FIXME keep asking
+  # Silently delete all normal users before
+for u in $(awk -F: '$3 >= 1000 {print $1}' /etc/passwd); do
+    userdel -r "$u" > /dev/null 2>&1
+done
 echo " (i) Insert root password"
-passwd
+until passwd root; do
+    echo "Password change failed. Try again: "
+done
 echo " ========== Creating user"
 read -p " (i) Username: " USERNAME
 useradd -m -G wheel,audio,video,storage,power -s /bin/bash $USERNAME
-passwd $USERNAME
+until passwd $USERNAME; do
+    echo "Password change for $USERNAME failed. Try again: "
+done
 sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 # ========================================= HARDWARE AND DRIVERS
@@ -150,19 +157,19 @@ fi
 arch-chroot /mnt /bin/bash -c "grub-mkconfig -o /boot/grub/grub.cfg"
 
 # ========================================= ZRAM
-arch-chroot /mnt bash -c '
- cat > /etc/systemd/zram-generator.conf <<EOF
- [zram0]
- zram-size = min(ram / 2, 8192)
- compression-algorithm = zstd
- swap-priority = 100
- EOF
- cat > /etc/sysctl.d/99-zram.conf <<EOF
- vm.swappiness=180
- vm.page-cluster=0
- EOF
-'
-arch-chroot /mnt systemctl enable systemd-zram-setup@zram0.service
+rm -f /mnt/etc/systemd/zram-generator.conf
+cat <<"EOF" > /mnt/etc/systemd/zram-generator.conf
+[zram0]
+zram-size = min(ram / 2, 8192)
+compression-algorithm = zstd
+swap-priority = 90
+EOF
+rm -f /mnt/etc/sysctl.d/99-zram.conf
+cat > /mnt/etc/sysctl.d/99-zram.conf << "EOF"
+vm.swappiness=180
+vm.page-cluster=0
+EOF
+#arch-chroot /mnt systemctl enable systemd-zram-setup@zram0.service
 
 # ========================================= SNAPPER
 #echo "Setup snapper"
@@ -189,8 +196,8 @@ fi
 read -p " (i) Download optional config script via curl? (y/n): " ENABLE_CURL
 if [[ "${ENABLE_CURL,,}" == "y" || "${ENABLE_CURL,,}" == "yes" ]]; then
   curl -L https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh \
-  -o /mnt/home/\$(ls /mnt/home)/install_optionals.sh
-  chmod +x /mnt/home/\$(ls /mnt/home)/install_optionals.sh
+  -o /mnt/home/$USERNAME/install_optionals.sh
+  chmod +x /mnt/home/$USERNAME/install_optionals.sh
 fi
 
 # TODO ufw
