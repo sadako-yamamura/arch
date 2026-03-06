@@ -3,10 +3,13 @@
 
   
 [Official Guide](https://wiki.archlinux.org/title/Installation_guide)
+
+#### 1. Download live USB Arch installer
+Download the ISO file and boot the image
 [Downloads](https://archlinux.org/download/)
 
-
-#### How to get the installer
+#### 2. Download the script
+Inside the live USB installer, get the script and execute it
 ```
 curl -L https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/arch_script.sh -o arch_script.sh
 chmod +x arch_script.sh
