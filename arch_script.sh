@@ -1,176 +1,155 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-# Ensure script as root
+set -e
 if [[ $EUID -ne 0 ]]; then
-   echo "This script must be run as root" 
-   exit 1
+  echo "Run as root"
+  exit 1
 fi
+echo "==== ARCH INSTALL SCRIPT ===="
+umount -R /mnt 2>/dev/null || true
 
-# Arch update
-echo "Updating Arch and Keyring..."
-pacman -Syy --noconfirm
-pacman -S archlinux-keyring --noconfirm
-
-# Prepare disk partitions
-echo "Listing available disks..."
-umount -lRq /mnt
-lsblk -f
-read -p "Format a disk? (DATA OF THE SELECTED DISK WILL BE DELETED)? (y/n): " is_format_disk
-if [[ "${is_format_disk,,}" == "y" || "${is_format_disk,,}" == "yes" ]]; then
-  read -p "Enter the disk to format (DATA WILL BE DELETED) (e.g., sda or nvme0n1): " disk
-  # Wipe existing disk, partition it, and format
-  echo "Wiping and partitioning $disk..."
-  wipefs --all /dev/$disk
-  parted /dev/$disk --script mklabel gpt
-  parted /dev/$disk --script mkpart ESP fat32 1MiB 1025MiB
-  parted /dev/$disk --script set 1 esp on
-  parted /dev/$disk --script mkpart primary btrfs 1025MiB 100%
-  lsblk
+echo "Available disks:"
+lsblk -o NAME,SIZE,TYPE,FSTYPE
+read -p "Disk to install to (ex: nvme0n1): " DISK
+EFI=${DISK}p1
+ROOT=${DISK}p2
+if [[ $DISK == sd* ]]; then
+  EFI=${DISK}1
+  ROOT=${DISK}2
 fi
+echo "Partitioning disk..."
+wipefs -af /dev/$DISK
+parted /dev/$DISK --script \
+ mklabel gpt \
+ mkpart ESP fat32 1MiB 1GiB \
+ set 1 esp on \
+ mkpart ROOT btrfs 1GiB 100%
+echo "Formatting..."
+mkfs.fat -F32 /dev/$EFI
+mkfs.btrfs -f /dev/$ROOT
 
-# Get partition names
-read -p "Enter the EFI partition (e.g., nvme0n1p1): " efi_partition
-read -p "Enter the root partition (e.g., nvme0n1p2): " root_partition
-# Format partitions
-echo "Formatting EFI and Root partitions..."
-mkfs.fat -F32 /dev/${efi_partition}
-mkfs.btrfs -f /dev/${root_partition}
+echo "Creating BTRFS subvolumes..."
+mount /dev/$ROOT /mnt
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+btrfs subvolume create /mnt/@log
+btrfs subvolume create /mnt/@pkg
+btrfs subvolume create /mnt/@snapshots
+umount /mnt
+echo "Mounting subvolumes..."
+mount -o compress=zstd,subvol=@ /dev/$ROOT /mnt
+mkdir -p /mnt/{boot,home,var/log,var/cache/pacman/pkg,.snapshots}
+mount -o compress=zstd,subvol=@home /dev/$ROOT /mnt/home
+mount -o compress=zstd,subvol=@log /dev/$ROOT /mnt/var/log
+mount -o compress=zstd,subvol=@pkg /dev/$ROOT /mnt/var/cache/pacman/pkg
+mount -o compress=zstd,subvol=@snapshots /dev/$ROOT /mnt/.snapshots
+mount /dev/$EFI /mnt/boot
 
-# Mount the partitions
-echo "Mounting the partitions..."
-mount /dev/${root_partition} /mnt
-mount --mkdir /dev/${efi_partition} /mnt/boot/efi
+echo "Optimizing mirrors..."
+pacman -Sy --noconfirm reflector
+reflector \
+ --latest 20 \
+ --sort rate \
+ --save /etc/pacman.d/mirrorlist
+echo "Installing base system..."
+pacstrap /mnt \
+ base \
+ base-devel \
+ linux \
+ linux-firmware \
+ btrfs-progs \
+ sudo \
+ nano \
+ git \
+ networkmanager \
+ snapper \
+ htop \
+ fastfetch \
+ bluez \
+ bluez-utils \
+ grub \
+ efibootmgr \
+ mtools \
+ dosfstools
 
-# Install core packages
-echo "Installing core packages..."
-pacstrap /mnt base base-devel linux linux-firmware git sudo fastfetch htop nano bluez bluez-utils networkmanager --noconfirm
-
-# Check if fsck is in the mkinitcpio.conf hooks array
-if grep -q 'fsck' "mnt/etc/mkinitcpio.conf"; then
-  echo "Removing fsck hook..."
-  sed -i 's/\bfsck\b//g' "/etc/mkinitcpio.conf"
-  arch-chroot /mnt mkinitcpio -P
-fi
-
-# Fixes bug
-#arch-chroot /mnt /bin/bash -c "
-#  ln -s /usr/bin/btrfsck /sbin/fsck.btrfs
-#"
-
-# Check CPU architecture for microcode (Intel vs AMD)
-read -p "Enter CPU type (intel/amd): " cpu_type
-if [[ "${cpu_type,,}" == "intel" ]]; then
-  pacstrap -i /mnt intel-ucode --noconfirm
-elif [[ "${cpu_type,,}" == "amd" ]]; then
-  pacstrap -i /mnt amd-ucode --noconfirm
-else
-  echo "Unknown CPU type. Proceeding without microcode."
-fi
-
-# NVIDIA GPU drivers
-echo "Looking for NVIDIA cards..." 
-lspci | grep -E "NVIDIA|GeForce"
-read -p "Install NVIDIA drivers? (y/n): " is_nvidia
-if [[ "${is_nvidia,,}" == "y" || "${is_nvidia,,}" == "yes" ]]; then
-  pacstrap -i /mnt linux-headers nvidia-utils nvidia-settings nvidia-dkms --noconfirm
-fi
-
-# Create and prepare users
-arch-chroot /mnt /bin/bash -c "
-  echo 'Set root password:'
-  passwd
-"
-read -p "Enter your username: " INSTALL_USER
-if [[ -z "$INSTALL_USER" ]]; then
-    echo "Username cannot be empty"
-    exit 1
-fi
-arch-chroot /mnt /bin/bash -c "
-  useradd -m -G wheel,storage,power,video,audio -s /bin/bash \"$INSTALL_USER\"
-  echo 'Set password for  \"$INSTALL_USER\":'
-  passwd \"$INSTALL_USER\"
-  sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-"
-
-# Configure locales
-echo "Configuring en_US.UTF-8 locales..."
-arch-chroot /mnt /bin/bash -c "
-  sed -i 's/^#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
-  locale-gen
-  
-  echo 'LANG=en_US.UTF-8' > /etc/locale.conf
-  echo 'KEYMAP=us' > /etc/vconsole.conf
-"
-
-# Install GRUB as the bootloader
-echo "Installing GRUB..."
-pacstrap -i /mnt grub efibootmgr dosfstools mtools --noconfirm
-arch-chroot /mnt /bin/bash -c "
-  grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB  
-"
-# Add second partition for dual boot
-lsblk -f
-read -p "Add second entry to GRUB for dualboot? (y/n): " is_dboot
-if [[ "${is_dboot,,}" == "y" || "${is_dboot,,}" == "yes" ]]; then
-   read -p "Enter the second EFI partition (e.g., nvme1n1p1): " DBOOT_EFI_PART
-   pacstrap -i /mnt os-prober --noconfirm
-   arch-chroot /mnt /bin/bash -c "
-     sed -i 's/^#GRUB_DISABLE_OS_PROBER=false/GRUB_DISABLE_OS_PROBER=false/' /etc/default/grub
-     mount --mkdir /dev/\"$DBOOT_EFI_PART\" /efi
-   "
-fi
-arch-chroot /mnt /bin/bash -c "grub-mkconfig -o /boot/grub/grub.cfg"
-
-# Install KDE Plasma with Wayland
-read -p "Install a Desktop Environment? (KDE Plasma will be used) (y/n): " is_kde
-if [[ "${is_kde,,}" == "y" || "${is_kde,,}" == "yes" ]]; then
-  echo "Installing KDE Plasma with Wayland..."
-  pacstrap -i /mnt plasma wayland sddm dolphin kscreen konsole breeze-gtk --noconfirm
-fi
-
-# Optionally curl a file to sync other packages and .config files
-read -p "Curl optional package installer? (y/n): " is_opt_pkgs
-if [[ "${is_opt_pkgs,,}" == "y" || "${is_opt_pkgs,,}" == "yes" ]]; then
-  tmp="/mnt/tmp/install_optionals.sh.$$"
-  if curl -fL --show-error "https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh" -o "$tmp"; then
-    chmod +x "$tmp"
-    mkdir -p "/mnt/home/$INSTALL_USER/Desktop"
-    mv "$tmp" "/mnt/home/$INSTALL_USER/Desktop/install_optionals.sh"
-    arch-chroot /mnt chown "$INSTALL_USER:$INSTALL_USER" "/home/$INSTALL_USER/Desktop/install_optionals.sh"
-  else
-    echo "Download failed"
-    rm -f "$tmp"
-  fi
-fi
-
-# Set up as SSH Server
-read -p "Set machine as SSH Server on boot? (y/n): " is_ssh
-if [[ "${is_ssh,,}" == "y" || "${is_ssh,,}" == "yes" ]]; then
-  echo "Installing OpenSSH..."
-  pacstrap -i /mnt openssh --noconfirm
-fi
-
-# Generate fstab
 echo "Generating fstab..."
-genfstab -U /mnt > /mnt/etc/fstab
+genfstab -U /mnt >> /mnt/etc/fstab
 
-# Enable needed basic services
+echo "Entering chroot..."
+arch-chroot /mnt /bin/bash <<EOF
+
+echo "Setting timezone"
+ln -sf /usr/share/zoneinfo/UTC /etc/localtime
+hwclock --systohc
+echo "Locales"
+sed -i 's/#en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen
+locale-gen
+echo "LANG=en_US.UTF-8" > /etc/locale.conf
+
+echo "Hostname"
+echo archlinux > /etc/hostname
+echo "Hosts"
+cat >> /etc/hosts <<HOSTS
+127.0.0.1 localhost
+::1 localhost
+127.0.1.1 archlinux.localdomain archlinux
+HOSTS
+
+echo "Root password"
+passwd
+echo "Creating user"
+read -p "Username: " USERNAME
+useradd -m -G wheel,audio,video,storage,power -s /bin/bash \$USERNAME
+passwd \$USERNAME
+sed -i 's/# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
 echo "Enabling basic services"
-arch-chroot /mnt /bin/bash -c "
-  systemctl enable NetworkManager
-  systemctl enable bluetooth.service
-"
-# Auto enable KDE if selected
-if [[ "${is_kde,,}" == "y" || "${is_kde,,}" == "yes" ]]; then
-  arch-chroot /mnt /bin/bash -c "systemctl enable sddm.service"
-fi
-# Auto enable SSH if selected
-if [[ "${is_ssh,,}" == "y" || "${is_ssh,,}" == "yes" ]]; then
-  arch-chroot /mnt /bin/bash -c "systemctl enable sshd"
+systemctl enable NetworkManager
+systemctl enable bluetooth
+
+echo "Installing CPU microcode"
+if grep -q "Intel" /proc/cpuinfo; then
+ pacman -S --noconfirm intel-ucode
+elif grep -q "AMD" /proc/cpuinfo; then
+ pacman -S --noconfirm amd-ucode
 fi
 
-# Reboot and exit installation
-umount -lR /mnt
+echo "Checking for NVIDIA GPU"
+if lspci | grep -i nvidia; then
+ pacman -S --noconfirm nvidia nvidia-utils nvidia-settings
+fi
+
+echo "Installing GRUB bootloader"
+grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
+grub-mkconfig -o /boot/grub/grub.cfg
+
+EOF
+
+#echo "Setup snapper"
+#snapper --no-dbus -c root create-config /
+#systemctl enable snapper-timeline.timer
+#systemctl enable snapper-cleanup.timer
+
+read -p "Install a Desktop Environment? (KDE Plasma will be used) (y/n)" ENABLE_KDE
+if [[ "${ENABLE_KDE,,}" == "y" || "${ENABLE_KDE,,}" == "yes" ]]; then
+ pacstrap /mnt plasma sddm konsole dolphin --noconfirm
+ arch-chroot /mnt systemctl enable sddm
+fi
+
+read -p "Enable SSH server? (y/n): " ENABLE_SSH
+if [[ "${ENABLE_SSH,,}" == "y" || "${ENABLE_SSH,,}" == "yes" ]]; then
+  pacstrap /mnt openssh --noconfirm
+  arch-chroot /mnt systemctl enable sshd
+fi
+
+read -p "Download optional config script via curl? (y/n): " ENABLE_CURL
+if [[ "${ENABLE_CURL,,}" == "y" || "${ENABLE_CURL,,}" == "yes" ]]; then
+  curl -L https://raw.githubusercontent.com/sadako-yamamura/arch/refs/heads/main/install_optionals.sh \
+  -o /mnt/home/\$(ls /mnt/home)/install_optionals.sh
+  chmod +x /mnt/home/\$(ls /mnt/home)/install_optionals.sh
+fi
+
 echo "Finished and rebooting in 5 seconds..."
+umount -lR /mnt
 sleep 5
-sudo shutdown -r now
+reboot
